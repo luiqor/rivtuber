@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-cream-50: #fdfaf3;
+	--color-cream-100: #f7f1e3;
+	--color-cream-200: #ede3cc;
+	--color-brown-500: #8a6a4a;
+	--color-brown-700: #5c4530;
+	--color-brown-900: #2e2218;
+	--color-grey-400: #9a9a96;
+	--color-grey-700: #4a4a47;
+	--color-grey-900: #1f1f1d;
+
+	--spacing-page: 1rem;
+
+	--font-sans: ui-sans-serif, system-ui, sans-serif;
+	--text-body: 1rem;
+	--text-body--line-height: 1.5;
+}
+
+/* Base element styles belong here only. Each rule uses @apply, so this file has no raw property values. */
+@layer base {
+	html,
+	body {
+		@apply bg-cream-100 text-brown-900 h-full font-sans;
+	}
+}
