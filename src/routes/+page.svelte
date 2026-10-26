@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import ControlsPanel from '#lib/rig/ControlsPanel.svelte';
 	import { loadRig, type Rig } from '#lib/rig/load-rig.js';
 
 	const view: { canvas?: HTMLCanvasElement; rig?: Rig; status: string; failed: boolean } = $state({
@@ -49,17 +50,7 @@
 		<p class={view.failed ? 'text-brown-700' : 'text-grey-700'}>{view.status}</p>
 
 		{#if view.rig}
-			<ul class="flex flex-col gap-1">
-				{#each view.rig.properties as property (property.name)}
-					<li>
-						<span class="font-semibold">{property.name}</span>
-						<span class="text-grey-700">{property.type}</span>
-						{#if property.values.length > 0}
-							<span class="text-grey-700">({property.values.join(', ')})</span>
-						{/if}
-					</li>
-				{/each}
-			</ul>
+			<ControlsPanel rig={view.rig} />
 		{/if}
 	</div>
 </main>
