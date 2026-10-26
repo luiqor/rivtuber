@@ -7,11 +7,13 @@
 /build
 
 # Custom
-.claude/
+*local*
+.headroom_*
 .scratch/
 docs/
 AGENTS.md
 node_modules
+.serena/
 
 # OS
 .DS_Store

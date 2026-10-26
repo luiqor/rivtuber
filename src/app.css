@@ -22,6 +22,6 @@
 @layer base {
 	html,
 	body {
-		@apply bg-cream-100 text-brown-900 h-full font-sans;
+		@apply text-brown-900 h-full bg-transparent font-sans;
 	}
 }
