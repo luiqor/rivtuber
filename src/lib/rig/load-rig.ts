@@ -29,10 +29,15 @@ export const loadRig = async (buffer: ArrayBuffer, canvas: HTMLCanvasElement): P
 		const rive = new Rive({
 			riveFile,
 			canvas,
-			autoplay: true,
+			// Without a state machine, Rive plays the first linear animation and ignores view model
+			// writes, so the state machine is started by name after load.
+			autoplay: false,
 			// Contain keeps the rig's aspect ratio and centers it, so it scales uniformly.
 			layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
 			onLoad: () => {
+				const [stateMachine] = rive.stateMachineNames;
+				if (stateMachine) rive.play(stateMachine);
+
 				const instance = rive.defaultViewModel()?.defaultInstance();
 				if (!instance) {
 					reject(new Error('This rig has no default view model instance.'));
