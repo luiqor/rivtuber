@@ -64,7 +64,9 @@
 						{#if property.type === 'number'}
 							<input
 								type="number"
-								step="any"
+								min="-1"
+								max="1"
+								step="0.01"
 								aria-label={property.name}
 								class="w-32 rounded-sm border px-2 py-1"
 								value={numberValue(property.name)}

@@ -34,37 +34,42 @@ export const loadRig = async (buffer: ArrayBuffer, canvas: HTMLCanvasElement): P
 			autoplay: false,
 			// Contain keeps the rig's aspect ratio and centers it, so it scales uniformly.
 			layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
+			// Rive only accepts play() once this callback returns; before that it queues the call.
+			// Queued, the state machine would start after the view model is bound and never see it, so
+			// the setup runs in a microtask, which is after Rive is ready.
 			onLoad: () => {
-				const [stateMachine] = rive.stateMachineNames;
-				if (stateMachine) rive.play(stateMachine);
+				queueMicrotask(() => {
+					const [stateMachine] = rive.stateMachineNames;
+					if (stateMachine) rive.play(stateMachine);
 
-				const instance = rive.defaultViewModel()?.defaultInstance();
-				if (!instance) {
-					reject(new Error('This rig has no default view model instance.'));
-					return;
-				}
-				rive.bindViewModelInstance(instance);
+					const instance = rive.defaultViewModel()?.defaultInstance();
+					if (!instance) {
+						reject(new Error('This rig has no default view model instance.'));
+						return;
+					}
+					rive.bindViewModelInstance(instance);
 
-				// The drawing surface is a bitmap, so it must be resized whenever the displayed box or the
-				// device pixel ratio (browser zoom) changes. Otherwise the rig is drawn at the old size.
-				const resize = () => {
-					rive.resizeDrawingSurfaceToCanvas();
-					rive.resizeToCanvas();
-				};
-				const observer = new ResizeObserver(resize);
-				observer.observe(canvas);
-				window.addEventListener('resize', resize);
-				resize();
+					// The drawing surface is a bitmap, so it must be resized whenever the displayed box or the
+					// device pixel ratio (browser zoom) changes. Otherwise the rig is drawn at the old size.
+					const resize = () => {
+						rive.resizeDrawingSurfaceToCanvas();
+						rive.resizeToCanvas();
+					};
+					const observer = new ResizeObserver(resize);
+					observer.observe(canvas);
+					window.addEventListener('resize', resize);
+					resize();
 
-				resolve({
-					rive,
-					instance,
-					properties: listProperties(instance),
-					dispose: () => {
-						observer.disconnect();
-						window.removeEventListener('resize', resize);
-						rive.cleanup();
-					},
+					resolve({
+						rive,
+						instance,
+						properties: listProperties(instance),
+						dispose: () => {
+							observer.disconnect();
+							window.removeEventListener('resize', resize);
+							rive.cleanup();
+						},
+					});
 				});
 			},
 			onLoadError: (event) => {

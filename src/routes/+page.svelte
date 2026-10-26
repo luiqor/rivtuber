@@ -44,10 +44,12 @@
 <svelte:window ondragover={allowDrop} ondrop={onDrop} />
 
 <main class="p-page">
-	<div class="flex flex-col gap-4">
-		<canvas bind:this={view.canvas} class="h-96 w-full"></canvas>
+	<div class={['flex flex-col gap-4', 'md:grid md:grid-cols-2']}>
+		<div class={['flex flex-col gap-4', 'md:sticky md:top-4 md:self-start']}>
+			<canvas bind:this={view.canvas} class="h-96 w-full"></canvas>
 
-		<p class={view.failed ? 'text-brown-700' : 'text-grey-700'}>{view.status}</p>
+			<p class={view.failed ? 'text-brown-700' : 'text-grey-700'}>{view.status}</p>
+		</div>
 
 		{#if view.rig}
 			<ControlsPanel rig={view.rig} />
