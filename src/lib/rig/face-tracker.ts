@@ -1,6 +1,7 @@
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
+import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import type { Rig } from './load-rig.js';
 
 const wasmUrl = '/mediapipe/wasm';
@@ -8,12 +9,15 @@ const modelUrl = '/mediapipe/face_landmarker.task';
 
 export interface FaceTracker {
 	stop: () => void;
+	// Averages the raw signals over durationMs and resolves with the profile whose offsets are that average.
+	calibrate: (durationMs: number) => Promise<Profile>;
 }
 
 // Writes straight to the rig every frame. The values never pass through Svelte state.
 export const startFaceTracking = async (
 	rig: Rig,
 	video: HTMLVideoElement,
+	getProfile: () => Profile,
 ): Promise<FaceTracker> => {
 	const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
 	video.srcObject = stream;
@@ -24,7 +28,9 @@ export const startFaceTracking = async (
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
+		capture: NeutralCapture | null;
 	} = {
+		capture: null,
 		landmarker: null,
 		frame: 0,
 		lastVideoTime: -1,
@@ -43,6 +49,17 @@ export const startFaceTracking = async (
 		video.srcObject = null;
 		session.landmarker?.close();
 		setFaceTracking(false);
+	};
+
+	const calibrate = (durationMs: number): Promise<Profile> => {
+		const capture = new NeutralCapture();
+		session.capture = capture;
+		return new Promise((resolve) => {
+			setTimeout(() => {
+				session.capture = null;
+				resolve(capture.apply(getProfile()));
+			}, durationMs);
+		});
 	};
 
 	await video
@@ -67,7 +84,7 @@ export const startFaceTracking = async (
 	// stop() may have run while the model was loading.
 	if (session.isStopped) {
 		stop();
-		return { stop };
+		return { stop, calibrate };
 	}
 
 	const tick = () => {
@@ -82,10 +99,9 @@ export const startFaceTracking = async (
 			setFaceTracking(Boolean(face));
 			if (face) {
 				const shapes = new Map(face.categories.map((c) => [c.categoryName, c.score]));
-				const values = Object.entries({
-					...trackedNumbers(shapes),
-					...(matrix && headPose(matrix.data)),
-				});
+				const raw = { ...trackedNumbers(shapes), ...(matrix && headPose(matrix.data)) };
+				session.capture?.add(raw);
+				const values = Object.entries(calibrateAll(raw, getProfile()));
 				for (const [name, value] of values) {
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
@@ -96,5 +112,5 @@ export const startFaceTracking = async (
 	};
 	session.frame = requestAnimationFrame(tick);
 
-	return { stop };
+	return { stop, calibrate };
 };

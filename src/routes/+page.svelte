@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { defaultProfile, type Profile } from '#lib/engine/calibration.js';
+	import { createProfileSaver, loadProfile } from '#lib/profile-storage.js';
 	import ControlsPanel from '#lib/rig/ControlsPanel.svelte';
 	import { startFaceTracking, type FaceTracker } from '#lib/rig/face-tracker.js';
 	import { loadRig, type Rig } from '#lib/rig/load-rig.js';
@@ -11,13 +13,48 @@
 		status: string;
 		failed: boolean;
 		isTracking: boolean;
+		isCalibrating: boolean;
 		// Only the on/off flag is state. Tracked values go straight to the rig.
 		tracker: FaceTracker | null;
 	} = $state({
 		isTracking: false,
+		isCalibrating: false,
 		tracker: null,
 		status: 'Drop a .riv file on the page.',
 		failed: false,
+	});
+
+	const calibration = { profile: defaultProfile(), saver: createProfileSaver() };
+	const calibrationSeconds = 3;
+
+	const setProfile = (profile: Profile) => {
+		calibration.profile = profile;
+		calibration.saver.save(profile);
+	};
+
+	const calibrateNeutral = async () => {
+		const { tracker } = view;
+		if (!tracker || view.isCalibrating) return;
+		view.isCalibrating = true;
+		await tracker
+			.calibrate(calibrationSeconds * 1000)
+			.then(setProfile)
+			.finally(() => {
+				view.isCalibrating = false;
+			});
+	};
+
+	const useStoredProfile = (profile: Profile) => {
+		calibration.profile = profile;
+	};
+
+	const flushProfile = () => {
+		void calibration.saver.flush();
+	};
+
+	onMount(() => {
+		void loadProfile().then(useStoredProfile);
+		return flushProfile;
 	});
 
 	const drop = async (file: File) => {
@@ -43,6 +80,7 @@
 		view.tracker?.stop();
 		view.tracker = null;
 		view.isTracking = false;
+		view.isCalibrating = false;
 	};
 
 	const toggleTracking = async () => {
@@ -52,7 +90,7 @@
 		}
 		if (!view.rig || !view.video) return;
 		view.isTracking = true;
-		await startFaceTracking(view.rig, view.video)
+		await startFaceTracking(view.rig, view.video, () => calibration.profile)
 			.then((started) => {
 				// The toggle may have been switched off, or the rig replaced, while the camera was starting.
 				if (view.isTracking) view.tracker = started;
@@ -94,6 +132,11 @@
 					<input type="checkbox" checked={view.isTracking} onchange={() => void toggleTracking()} />
 					Face tracking
 				</label>
+				{#if view.tracker}
+					<button disabled={view.isCalibrating} onclick={() => void calibrateNeutral()}>
+						{view.isCalibrating ? 'Hold a relaxed face...' : 'Calibrate neutral'}
+					</button>
+				{/if}
 			{/if}
 
 			<!-- Mirrored like a selfie view. Only the preview is flipped, not the frames MediaPipe reads. -->
