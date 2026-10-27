@@ -1,4 +1,5 @@
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
 import type { Rig } from './load-rig.js';
 
@@ -53,6 +54,7 @@ export const startFaceTracking = async (
 				runningMode: 'VIDEO',
 				numFaces: 1,
 				outputFaceBlendshapes: true,
+				outputFacialTransformationMatrixes: true,
 			}),
 		)
 		.then((landmarker) => {
@@ -74,11 +76,16 @@ export const startFaceTracking = async (
 		// MediaPipe rejects a repeated timestamp, so a frame is processed only when the video advanced.
 		if (video.currentTime !== session.lastVideoTime) {
 			session.lastVideoTime = video.currentTime;
-			const face = landmarker.detectForVideo(video, performance.now()).faceBlendshapes.at(0);
+			const result = landmarker.detectForVideo(video, performance.now());
+			const face = result.faceBlendshapes.at(0);
+			const matrix = result.facialTransformationMatrixes.at(0);
 			setFaceTracking(Boolean(face));
 			if (face) {
 				const shapes = new Map(face.categories.map((c) => [c.categoryName, c.score]));
-				const values = Object.entries(trackedNumbers(shapes));
+				const values = Object.entries({
+					...trackedNumbers(shapes),
+					...(matrix && headPose(matrix.data)),
+				});
 				for (const [name, value] of values) {
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
