@@ -2,9 +2,8 @@ import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
 import type { Rig } from './load-rig.js';
 
-const wasmUrl = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm';
-const modelUrl =
-	'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const wasmUrl = '/mediapipe/wasm';
+const modelUrl = '/mediapipe/face_landmarker.task';
 
 export interface FaceTracker {
 	stop: () => void;
