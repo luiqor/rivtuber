@@ -1,11 +1,8 @@
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
+import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
 import type { Rig } from './load-rig.js';
-
-const wasmUrl = '/mediapipe/wasm';
-const modelUrl = '/mediapipe/face_landmarker.task';
 
 export interface FaceTracker {
 	stop: () => void;
@@ -24,14 +21,14 @@ export const startFaceTracking = async (
 	video.muted = true;
 
 	const session: {
-		landmarker: FaceLandmarker | null;
+		detector: FaceDetector | null;
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
 		capture: NeutralCapture | null;
 	} = {
 		capture: null,
-		landmarker: null,
+		detector: null,
 		frame: 0,
 		lastVideoTime: -1,
 		isStopped: false,
@@ -47,7 +44,7 @@ export const startFaceTracking = async (
 		cancelAnimationFrame(session.frame);
 		for (const track of stream.getTracks()) track.stop();
 		video.srcObject = null;
-		session.landmarker?.close();
+		session.detector?.close();
 		setFaceTracking(false);
 	};
 
@@ -64,18 +61,9 @@ export const startFaceTracking = async (
 
 	await video
 		.play()
-		.then(() => FilesetResolver.forVisionTasks(wasmUrl))
-		.then((vision) =>
-			FaceLandmarker.createFromOptions(vision, {
-				baseOptions: { modelAssetPath: modelUrl, delegate: 'GPU' },
-				runningMode: 'VIDEO',
-				numFaces: 1,
-				outputFaceBlendshapes: true,
-				outputFacialTransformationMatrixes: true,
-			}),
-		)
-		.then((landmarker) => {
-			session.landmarker = landmarker;
+		.then(createFaceDetector)
+		.then((detector) => {
+			session.detector = detector;
 		})
 		.catch((error: unknown) => {
 			stop();
@@ -88,18 +76,18 @@ export const startFaceTracking = async (
 	}
 
 	const tick = () => {
-		const { landmarker } = session;
-		if (!landmarker || session.isStopped) return;
-		// MediaPipe rejects a repeated timestamp, so a frame is processed only when the video advanced.
+		const { detector } = session;
+		if (!detector || session.isStopped) return;
+
 		if (video.currentTime !== session.lastVideoTime) {
 			session.lastVideoTime = video.currentTime;
-			const result = landmarker.detectForVideo(video, performance.now());
-			const face = result.faceBlendshapes.at(0);
-			const matrix = result.facialTransformationMatrixes.at(0);
-			setFaceTracking(Boolean(face));
-			if (face) {
-				const shapes = new Map(face.categories.map((c) => [c.categoryName, c.score]));
-				const raw = { ...trackedNumbers(shapes), ...(matrix && headPose(matrix.data)) };
+			const frame = detector.detect(video, performance.now());
+			setFaceTracking(Boolean(frame));
+			if (frame) {
+				const raw = {
+					...trackedNumbers(frame.blendshapes),
+					...(frame.headMatrix && headPose(frame.headMatrix)),
+				};
 				session.capture?.add(raw);
 				const values = Object.entries(calibrateAll(raw, getProfile()));
 				for (const [name, value] of values) {
