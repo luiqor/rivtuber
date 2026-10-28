@@ -1,5 +1,6 @@
 import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
+import { classifyMouth, type MouthState } from '#lib/engine/mouth-state.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
 import type { Rig } from './load-rig.js';
@@ -25,12 +26,14 @@ export const startFaceTracking = async (
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
+		mouthState: MouthState;
 		capture: NeutralCapture | null;
 	} = {
 		capture: null,
 		detector: null,
 		frame: 0,
 		lastVideoTime: -1,
+		mouthState: 'rest',
 		isStopped: false,
 	};
 
@@ -89,11 +92,14 @@ export const startFaceTracking = async (
 					...(frame.headMatrix && headPose(frame.headMatrix)),
 				};
 				session.capture?.add(raw);
-				const values = Object.entries(calibrateAll(raw, getProfile()));
-				for (const [name, value] of values) {
+				const calibrated = calibrateAll(raw, getProfile());
+				for (const [name, value] of Object.entries(calibrated)) {
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
 				}
+				session.mouthState = classifyMouth(calibrated, session.mouthState);
+				const mouth = rig.instance.enum('mouthState');
+				if (mouth) mouth.value = session.mouthState;
 			}
 		}
 		session.frame = requestAnimationFrame(tick);
