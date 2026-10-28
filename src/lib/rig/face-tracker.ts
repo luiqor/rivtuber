@@ -1,5 +1,7 @@
 import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
+import { BlinkFilter } from '#lib/engine/blink-filter.js';
+import { isBlinking, PupilHold } from '#lib/engine/pupil-hold.js';
 import { classifyMouth, type MouthState } from '#lib/engine/mouth-state.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
@@ -36,6 +38,10 @@ export const startFaceTracking = async (
 		mouthState: 'rest',
 		isStopped: false,
 	};
+
+	const blinkFilters = { eyeBlinkLeft: new BlinkFilter(), eyeBlinkRight: new BlinkFilter() };
+
+	const pupilHolds = { pupilX: new PupilHold(), pupilY: new PupilHold() };
 
 	const setFaceTracking = (isOn: boolean) => {
 		const property = rig.instance.boolean('faceTracking');
@@ -84,7 +90,8 @@ export const startFaceTracking = async (
 
 		if (video.currentTime !== session.lastVideoTime) {
 			session.lastVideoTime = video.currentTime;
-			const frame = detector.detect(video, performance.now());
+			const now = performance.now();
+			const frame = detector.detect(video, now);
 			setFaceTracking(Boolean(frame));
 			if (frame) {
 				const raw = {
@@ -93,6 +100,13 @@ export const startFaceTracking = async (
 				};
 				session.capture?.add(raw);
 				const calibrated = calibrateAll(raw, getProfile());
+				const isHeld = isBlinking(calibrated.eyeBlinkLeft, calibrated.eyeBlinkRight);
+				for (const [name, hold] of Object.entries(pupilHolds)) {
+					calibrated[name] = hold.apply(calibrated[name] ?? 0, isHeld);
+				}
+				for (const [name, filter] of Object.entries(blinkFilters)) {
+					calibrated[name] = filter.apply(calibrated[name] ?? 0, now);
+				}
 				for (const [name, value] of Object.entries(calibrated)) {
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
