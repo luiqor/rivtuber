@@ -44,6 +44,9 @@ export const parseProfile = (text: string): Profile => {
 	return { signals };
 };
 
+// Squint scores run low on real faces, and the neutral offset eats most of the range, so they get extra gain.
+const signalBoost = (name: string): number => (name.startsWith('eyeSquint') ? 2 : 1);
+
 // Signals that swing both ways (pupils and head angles) stay in -1..1. The rest stay in 0..1.
 const isSigned = (name: string): boolean => name.startsWith('pupil') || name.startsWith('head');
 
@@ -52,7 +55,7 @@ export const calibrate = (name: string, raw: number, profile: Profile): number =
 	const { offset, gain, deadzone } = profile.signals[name] ?? defaultSignal;
 	const centered = raw - offset;
 	if (Math.abs(centered) < deadzone) return 0;
-	const scaled = centered * gain;
+	const scaled = centered * gain * signalBoost(name);
 	return Math.max(isSigned(name) ? -1 : 0, Math.min(1, scaled));
 };
 

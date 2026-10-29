@@ -1,7 +1,15 @@
 import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
-import { BlinkFilter } from '#lib/engine/blink-filter.js';
+import { Smoother } from '#lib/engine/smoother.js';
 import { isBlinking, PupilHold } from '#lib/engine/pupil-hold.js';
+import {
+	classifyEyelid,
+	squintFloor,
+	EyelidSettle,
+	TurnGate,
+	openEyelid,
+	type EyelidState,
+} from '#lib/engine/eyelid-state.js';
 import { classifyMouth, type MouthState } from '#lib/engine/mouth-state.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
@@ -29,6 +37,7 @@ export const startFaceTracking = async (
 		isStopped: boolean;
 		lastVideoTime: number;
 		mouthState: MouthState;
+		eyelids: Partial<Record<string, EyelidState>>;
 		capture: NeutralCapture | null;
 	} = {
 		capture: null,
@@ -36,10 +45,28 @@ export const startFaceTracking = async (
 		frame: 0,
 		lastVideoTime: -1,
 		mouthState: 'rest',
+		eyelids: {},
 		isStopped: false,
 	};
 
-	const blinkFilters = { eyeBlinkLeft: new BlinkFilter(), eyeBlinkRight: new BlinkFilter() };
+	const eyeSmoothers = Object.fromEntries(
+		['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'].flatMap((signal) =>
+			['Left', 'Right'].map((side) => [`${signal}${side}`, new Smoother()] as const),
+		),
+	);
+
+	const eyeHolds = Object.fromEntries(
+		['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'].flatMap((signal) =>
+			['Left', 'Right'].map((side) => [`${signal}${side}`, new PupilHold()] as const),
+		),
+	);
+
+	const turnGate = new TurnGate();
+
+	const eyelidSettles: Record<string, EyelidSettle> = {
+		Left: new EyelidSettle(),
+		Right: new EyelidSettle(),
+	};
 
 	const pupilHolds = { pupilX: new PupilHold(), pupilY: new PupilHold() };
 
@@ -100,12 +127,16 @@ export const startFaceTracking = async (
 				};
 				session.capture?.add(raw);
 				const calibrated = calibrateAll(raw, getProfile());
+				for (const [name, smoother] of Object.entries(eyeSmoothers)) {
+					calibrated[name] = smoother.apply(calibrated[name] ?? 0);
+				}
 				const isHeld = isBlinking(calibrated.eyeBlinkLeft, calibrated.eyeBlinkRight);
 				for (const [name, hold] of Object.entries(pupilHolds)) {
 					calibrated[name] = hold.apply(calibrated[name] ?? 0, isHeld);
 				}
-				for (const [name, filter] of Object.entries(blinkFilters)) {
-					calibrated[name] = filter.apply(calibrated[name] ?? 0, now);
+				const isTurned = turnGate.apply(calibrated.headTurnX);
+				for (const [name, hold] of Object.entries(eyeHolds)) {
+					calibrated[name] = hold.apply(calibrated[name] ?? 0, isTurned);
 				}
 				for (const [name, value] of Object.entries(calibrated)) {
 					const property = rig.instance.number(name);
@@ -114,6 +145,26 @@ export const startFaceTracking = async (
 				session.mouthState = classifyMouth(calibrated, session.mouthState);
 				const mouth = rig.instance.enum('mouthState');
 				if (mouth) mouth.value = session.mouthState;
+				for (const side of ['Left', 'Right']) {
+					const candidate = classifyEyelid(
+						calibrated[`eyeBlink${side}`] ?? 0,
+						calibrated[`eyeSquint${side}`] ?? 0,
+						calibrated[`eyeWide${side}`] ?? 0,
+						calibrated[`browDown${side}`] ?? 0,
+						session.eyelids[side] ?? openEyelid,
+					);
+					const eyelid = eyelidSettles[side].apply(candidate, now);
+					session.eyelids[side] = eyelid;
+					// Compared with the rig's own value, since the rig can reset it. Rive may also restart a transition on every write.
+					const upper = rig.instance.enum(`eyelidUp${side}`);
+					if (upper && upper.value !== eyelid.upper) upper.value = eyelid.upper;
+					const lower = rig.instance.enum(`eyelidDown${side}`);
+					if (lower && lower.value !== eyelid.lower) lower.value = eyelid.lower;
+					const squintNumber = rig.instance.number(`eyeSquint${side}`);
+					if (squintNumber && eyelid.upper === 'squint') {
+						squintNumber.value = Math.max(squintNumber.value, squintFloor);
+					}
+				}
 			}
 		}
 		session.frame = requestAnimationFrame(tick);

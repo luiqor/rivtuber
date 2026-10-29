@@ -38,5 +38,7 @@ export const trackedNumbers = (shapes: Blendshapes): Record<string, number> => (
 	eyeSquintRight: score(shapes, 'eyeSquintLeft'),
 	eyeWideLeft: score(shapes, 'eyeWideRight'),
 	eyeWideRight: score(shapes, 'eyeWideLeft'),
+	browDownLeft: score(shapes, 'browDownRight'),
+	browDownRight: score(shapes, 'browDownLeft'),
 	...gaze(shapes),
 });
