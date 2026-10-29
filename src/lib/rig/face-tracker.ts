@@ -11,8 +11,10 @@ import {
 	type EyelidState,
 } from '#lib/engine/eyelid-state.js';
 import { classifyMouth, MouthSettle, type MouthState } from '#lib/engine/mouth-state.js';
+import { combineJaw } from '#lib/engine/mic-jaw.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
+import { startMicLevel, type MicLevel } from './mic-level.js';
 import type { Rig } from './load-rig.js';
 
 export interface FaceTracker {
@@ -33,6 +35,7 @@ export const startFaceTracking = async (
 
 	const session: {
 		detector: FaceDetector | null;
+		mic: MicLevel | null;
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
@@ -43,6 +46,7 @@ export const startFaceTracking = async (
 	} = {
 		capture: null,
 		detector: null,
+		mic: null,
 		frame: 0,
 		lastVideoTime: -1,
 		mouthCandidate: 'rest',
@@ -84,8 +88,11 @@ export const startFaceTracking = async (
 		for (const track of stream.getTracks()) track.stop();
 		video.srcObject = null;
 		session.detector?.close();
+		session.mic?.stop();
 		setFaceTracking(false);
 	};
+
+	const hasStopped = () => session.isStopped;
 
 	const calibrate = (durationMs: number): Promise<Profile> => {
 		const capture = new NeutralCapture();
@@ -114,6 +121,14 @@ export const startFaceTracking = async (
 		return { stop, calibrate };
 	}
 
+	// The mic is optional. Without it the jaw follows the camera alone.
+	session.mic = await startMicLevel().catch(() => null);
+	if (hasStopped()) {
+		stop();
+		return { stop, calibrate };
+	}
+	const readMic = () => session.mic?.read() ?? 0;
+
 	const tick = () => {
 		const { detector } = session;
 		if (!detector || session.isStopped) return;
@@ -130,6 +145,7 @@ export const startFaceTracking = async (
 				};
 				session.capture?.add(raw);
 				const calibrated = calibrateAll(raw, getProfile());
+				calibrated.jawOpen = combineJaw(calibrated.jawOpen, readMic());
 				for (const [name, smoother] of Object.entries(eyeSmoothers)) {
 					calibrated[name] = smoother.apply(calibrated[name] ?? 0);
 				}
