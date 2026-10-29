@@ -10,7 +10,7 @@ import {
 	openEyelid,
 	type EyelidState,
 } from '#lib/engine/eyelid-state.js';
-import { classifyMouth, type MouthState } from '#lib/engine/mouth-state.js';
+import { classifyMouth, MouthSettle, type MouthState } from '#lib/engine/mouth-state.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
 import type { Rig } from './load-rig.js';
@@ -36,6 +36,7 @@ export const startFaceTracking = async (
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
+		mouthCandidate: MouthState;
 		mouthState: MouthState;
 		eyelids: Partial<Record<string, EyelidState>>;
 		capture: NeutralCapture | null;
@@ -44,6 +45,7 @@ export const startFaceTracking = async (
 		detector: null,
 		frame: 0,
 		lastVideoTime: -1,
+		mouthCandidate: 'rest',
 		mouthState: 'rest',
 		eyelids: {},
 		isStopped: false,
@@ -62,6 +64,7 @@ export const startFaceTracking = async (
 	);
 
 	const turnGate = new TurnGate();
+	const mouthSettle = new MouthSettle();
 
 	const eyelidSettles: Record<string, EyelidSettle> = {
 		Left: new EyelidSettle(),
@@ -142,9 +145,10 @@ export const startFaceTracking = async (
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
 				}
-				session.mouthState = classifyMouth(calibrated, session.mouthState);
+				session.mouthCandidate = classifyMouth(calibrated, session.mouthCandidate);
+				session.mouthState = mouthSettle.apply(session.mouthCandidate, now);
 				const mouth = rig.instance.enum('mouthState');
-				if (mouth) mouth.value = session.mouthState;
+				if (mouth && mouth.value !== session.mouthState) mouth.value = session.mouthState;
 				for (const side of ['Left', 'Right']) {
 					const candidate = classifyEyelid(
 						calibrated[`eyeBlink${side}`] ?? 0,

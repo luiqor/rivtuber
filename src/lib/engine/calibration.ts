@@ -47,6 +47,11 @@ export const parseProfile = (text: string): Profile => {
 // Squint scores run low on real faces, and the neutral offset eats most of the range, so they get extra gain.
 const signalBoost = (name: string): number => (name.startsWith('eyeSquint') ? 2 : 1);
 
+// Speech only opens the jaw a little, so jawOpen gets a smaller deadzone than the stored one.
+const jawDeadzone = 0.01;
+const signalDeadzone = (name: string, deadzone: number): number =>
+	name === 'jawOpen' ? Math.min(deadzone, jawDeadzone) : deadzone;
+
 // Signals that swing both ways (pupils and head angles) stay in -1..1. The rest stay in 0..1.
 const isSigned = (name: string): boolean => name.startsWith('pupil') || name.startsWith('head');
 
@@ -54,7 +59,7 @@ const isSigned = (name: string): boolean => name.startsWith('pupil') || name.sta
 export const calibrate = (name: string, raw: number, profile: Profile): number => {
 	const { offset, gain, deadzone } = profile.signals[name] ?? defaultSignal;
 	const centered = raw - offset;
-	if (Math.abs(centered) < deadzone) return 0;
+	if (Math.abs(centered) < signalDeadzone(name, deadzone)) return 0;
 	const scaled = centered * gain * signalBoost(name);
 	return Math.max(isSigned(name) ? -1 : 0, Math.min(1, scaled));
 };

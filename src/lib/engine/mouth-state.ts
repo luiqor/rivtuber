@@ -9,12 +9,12 @@ interface MouthRule {
 }
 
 const rules: readonly MouthRule[] = [
-	{ state: 'smile', input: 'mouthSmile', gain: 1, enter: 0.5, exit: 0.4 },
-	{ state: 'jaw-open', input: 'jawOpen', gain: 1, enter: 0.5, exit: 0.4 },
-	{ state: 'round', input: 'mouthFunnel', gain: 1.2, enter: 0.08, exit: 0.02 },
+	{ state: 'smile', input: 'mouthSmile', gain: 1.5, enter: 0.4, exit: 0.3 },
+	{ state: 'jaw-open', input: 'jawOpen', gain: 4, enter: 0.25, exit: 0.1 },
+	{ state: 'round', input: 'mouthFunnel', gain: 1.2, enter: 0.3, exit: 0.15 },
 	{ state: 'frown', input: 'mouthFrown', gain: 2.5, enter: 0.35, exit: 0.25 },
-	{ state: 'press', input: 'mouthPress', gain: 2.5, enter: 0.08, exit: 0.02 },
-	{ state: 'lip-bite', input: 'mouthRollLower', gain: 1, enter: 0.5, exit: 0.4 },
+	{ state: 'press', input: 'mouthPress', gain: 2.5, enter: 0.35, exit: 0.2 },
+	{ state: 'lip-bite', input: 'mouthRollLower', gain: 1.5, enter: 0.4, exit: 0.25 },
 ];
 
 export const mouthInputs: readonly string[] = rules.map((rule) => rule.input);
@@ -34,3 +34,31 @@ export const classifyMouth = (
 	}
 	return best;
 };
+
+// Speech flips the jaw open and closed within a few frames, which would restart the rig's transitions.
+// Leaving a state is slower than entering one so the gaps between syllables don't drop back to rest.
+export const enterMs = 60;
+export const restMs = 150;
+
+export class MouthSettle {
+	private current: MouthState = 'rest';
+	private pending: MouthState | null = null;
+	private pendingSince = 0;
+
+	apply(candidate: MouthState, nowMs: number): MouthState {
+		if (candidate === this.current) {
+			this.pending = null;
+			return this.current;
+		}
+		if (this.pending !== candidate) {
+			this.pending = candidate;
+			this.pendingSince = nowMs;
+		}
+		const delay = candidate === 'rest' ? restMs : enterMs;
+		if (nowMs - this.pendingSince >= delay) {
+			this.current = candidate;
+			this.pending = null;
+		}
+		return this.current;
+	}
+}
