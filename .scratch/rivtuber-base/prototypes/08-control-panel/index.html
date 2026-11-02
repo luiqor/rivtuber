@@ -1,0 +1,277 @@
+<!doctype html>
+<!--
+PROTOTYPE, THROWAWAY. Ticket 08: control panel layout.
+Question: how should the generated controls be grouped, labelled and ordered?
+Three structurally different variants, switched with ?variant=A|B|C or the bottom bar:
+  A: accordion grouped by property TYPE.
+  B: tabs grouped by face REGION (name prefix), with search.
+  C: one flat, filterable table, sorted by name.
+Assumptions (stated, not verified):
+- Properties driven by tracking are excluded from controls (list from the map's Settled design).
+- Number controls are plain number boxes: the runtime does not expose a range, so no slider bounds are guessed.
+- The fixed Tracking and Calibration blocks are placeholders. They show where they sit, not how they work.
+Run: python3 -m http.server 8080 in this folder, then open http://localhost:8080 and drop catperson.riv on the page.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE: control panel</title>
+<style>
+  :root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
+  body { margin: 0; padding: 16px 16px 90px; background: Canvas; color: CanvasText; }
+  .banner { background: #ffe066; color: #000; padding: 6px 10px; border-radius: 4px; font-weight: 600; margin-bottom: 12px; }
+  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  canvas { width: 100%; background: #8882; border-radius: 6px; }
+  .drop { border: 2px dashed #888; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .fixed { border: 1px solid #8884; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; }
+  .fixed h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; opacity: .7; }
+  .ctl { display: grid; grid-template-columns: 1fr 140px; gap: 8px; align-items: center; padding: 4px 0; }
+  .ctl .n { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .ctl input[type=number], .ctl select, .ctl input[type=text] { width: 100%; }
+  .ctl.check { grid-template-columns: 1fr auto; }
+  .muted { opacity: .7; }
+  /* A: accordion */
+  details { border: 1px solid #8884; border-radius: 6px; margin-bottom: 8px; padding: 6px 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  /* B: tabs */
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tabs button[aria-selected=true] { font-weight: 700; text-decoration: underline; }
+  input.search { width: 100%; padding: 6px; margin-bottom: 8px; box-sizing: border-box; }
+  /* C: flat table */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chips button[aria-pressed=true] { background: #2ecc71; color: #000; }
+  .flat .ctl { border-bottom: 1px solid #8882; }
+  /* switcher bar */
+  #switcher { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center;
+    background: #111; color: #fff; padding: 8px 14px; border-radius: 999px; box-shadow: 0 4px 16px #0006; }
+  #switcher button { background: #333; color: #fff; border: 0; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="banner">PROTOTYPE, THROWAWAY. Ticket 08. Question: how should generated controls be grouped and ordered?</div>
+
+<div class="layout">
+  <aside>
+    <div class="drop" id="drop">Drop catperson.riv here. <span class="muted" id="status">No rig loaded.</span></div>
+    <canvas id="preview" width="600" height="600"></canvas>
+    <div class="fixed"><h3>Tracking (placeholder)</h3><button disabled>Start camera</button> <span class="muted">Fixed block, not part of the variant.</span></div>
+    <div class="fixed"><h3>Calibration (placeholder)</h3><button disabled>Calibrate neutral</button> <span class="muted">Fixed block, not part of the variant.</span></div>
+  </aside>
+  <main id="stage"><p class="muted">Load a rig to see the generated controls.</p></main>
+</div>
+
+<div id="switcher">
+  <button id="prev" aria-label="Previous variant">&larr;</button>
+  <span id="label">A</span>
+  <button id="next" aria-label="Next variant">&rarr;</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2@2.45.0/rive.js"></script>
+<script>
+// Driven by tracking, per the map's Settled design. These are not generated as controls.
+const TRACKED = new Set(["faceTracking", "jawOpen", "mouthSmile", "mouthFrown", "mouthPucker",
+  "eyeBlinkLeft", "eyeBlinkRight", "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight",
+  "headRot", "headTurnX", "headTurnY", "pupilX", "pupilY"]);
+
+const VARIANTS = { A: "By type (accordion)", B: "By face region (tabs)", C: "Flat table (filters)" };
+const KEYS = Object.keys(VARIANTS);
+const TYPE_ORDER = ["number", "boolean", "color", "enumType", "trigger", "string"];
+const TYPE_LABEL = { number: "Numbers", boolean: "Toggles", color: "Colors", enumType: "Choices", trigger: "Triggers", string: "Text" };
+const REGIONS = [["Mouth", /^(mouth|jaw|tongue)/i], ["Eyes", /^eye/i], ["Brows & cheeks", /^(brow|cheek|nose)/i], ["Head & pupils", /^(head|pupil)/i], ["Other", /.*/]];
+
+let vmi = null;
+let controls = [];   // [{ name, type, el }]
+let variant = new URLSearchParams(location.search).get("variant")?.toUpperCase();
+if (!VARIANTS[variant]) variant = "A";
+let region = 0;
+let filters = new Set(TYPE_ORDER);
+
+const stage = document.getElementById("stage");
+const status = document.getElementById("status");
+
+function makeControl(p) {
+  const row = document.createElement("label");
+  row.className = "ctl";
+  const n = document.createElement("span");
+  n.className = "n";
+  n.textContent = p.name;
+  row.appendChild(n);
+  let input;
+  switch (p.type) {
+    case "number": {
+      input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.value = vmi.number(p.name).value;
+      input.oninput = () => { vmi.number(p.name).value = +input.value; };
+      break;
+    }
+    case "boolean": {
+      row.classList.add("check");
+      input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = vmi.boolean(p.name).value;
+      input.onchange = () => { vmi.boolean(p.name).value = input.checked; };
+      break;
+    }
+    case "color": {
+      input = document.createElement("input");
+      input.type = "color";
+      input.value = "#808080";
+      input.onchange = () => {
+        const v = input.value;
+        vmi.color(p.name).rgb(parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16));
+      };
+      break;
+    }
+    case "enumType": {
+      input = document.createElement("select");
+      const en = vmi.enum(p.name);
+      for (const v of en.values) input.add(new Option(v, v, false, v === en.value));
+      input.onchange = () => { en.value = input.value; };
+      break;
+    }
+    case "trigger": {
+      input = document.createElement("button");
+      input.textContent = "Fire";
+      input.onclick = () => vmi.trigger(p.name).trigger();
+      break;
+    }
+    case "string": {
+      input = document.createElement("input");
+      input.type = "text";
+      input.value = vmi.string(p.name).value;
+      input.oninput = () => { vmi.string(p.name).value = input.value; };
+      break;
+    }
+  }
+  row.appendChild(input);
+  return row;
+}
+
+function blockFor(c) { return c.el; }
+
+function renderA() {
+  for (const t of TYPE_ORDER) {
+    const items = controls.filter((c) => c.type === t).sort((a, b) => a.name.localeCompare(b.name));
+    if (!items.length) continue;
+    const d = document.createElement("details");
+    d.open = true;
+    d.innerHTML = `<summary>${TYPE_LABEL[t]} (${items.length})</summary>`;
+    items.forEach((c) => d.appendChild(blockFor(c)));
+    stage.appendChild(d);
+  }
+}
+
+function renderB() {
+  const tabs = document.createElement("div");
+  tabs.className = "tabs";
+  REGIONS.forEach(([label], i) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.setAttribute("aria-selected", i === region);
+    b.onclick = () => { region = i; render(); };
+    tabs.appendChild(b);
+  });
+  stage.appendChild(tabs);
+  const search = document.createElement("input");
+  search.className = "search";
+  search.placeholder = "Search all properties";
+  stage.appendChild(search);
+  const list = document.createElement("div");
+  stage.appendChild(list);
+  const draw = () => {
+    list.innerHTML = "";
+    const q = search.value.trim().toLowerCase();
+    const pool = q ? controls.filter((c) => c.name.toLowerCase().includes(q)) : controls.filter((c) => REGIONS[region][1].test(c.name) && !REGIONS.slice(0, region).some(([, re]) => re.test(c.name)));
+    pool.sort((a, b) => a.name.localeCompare(b.name)).forEach((c) => list.appendChild(blockFor(c)));
+    if (!pool.length) list.innerHTML = '<p class="muted">Nothing here.</p>';
+  };
+  search.oninput = draw;
+  draw();
+}
+
+function renderC() {
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  for (const t of TYPE_ORDER) {
+    const b = document.createElement("button");
+    b.textContent = TYPE_LABEL[t];
+    b.setAttribute("aria-pressed", filters.has(t));
+    b.onclick = () => { filters.has(t) ? filters.delete(t) : filters.add(t); render(); };
+    chips.appendChild(b);
+  }
+  stage.appendChild(chips);
+  const flat = document.createElement("div");
+  flat.className = "flat";
+  controls.filter((c) => filters.has(c.type)).sort((a, b) => a.name.localeCompare(b.name)).forEach((c) => flat.appendChild(blockFor(c)));
+  stage.appendChild(flat);
+}
+
+function render() {
+  document.getElementById("label").textContent = `${variant} (${VARIANTS[variant]})`;
+  history.replaceState(null, "", `?variant=${variant}`);
+  stage.innerHTML = "";
+  if (!vmi) { stage.innerHTML = '<p class="muted">Load a rig to see the generated controls.</p>'; return; }
+  ({ A: renderA, B: renderB, C: renderC })[variant]();
+}
+
+function cycle(d) {
+  variant = KEYS[(KEYS.indexOf(variant) + d + KEYS.length) % KEYS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+
+// defaultViewModel() lives on a Rive instance, not on RiveFile, so the file is attached to the preview canvas first.
+function loadRive(riveFile, canvas) {
+  return new Promise((resolve, reject) => {
+    const r = new rive.Rive({ riveFile, canvas, autoplay: true,
+      onLoad: () => resolve(r), onLoadError: () => reject(new Error("Rive could not load this file.")) });
+  });
+}
+
+async function loadRig(file) {
+  const buffer = await file.arrayBuffer();
+  const riveFile = new rive.RiveFile({ buffer });
+  await riveFile.init();
+  const canvas = document.getElementById("preview");
+  const r = await loadRive(riveFile, canvas);
+  const vm = r.defaultViewModel();
+  vmi = vm?.defaultInstance();
+  if (!vmi) throw new Error("This file has no default view model instance.");
+  r.bindViewModelInstance(vmi);
+
+  controls = vmi.properties
+    .filter((p) => !TRACKED.has(p.name) && TYPE_ORDER.includes(p.type))
+    .map((p) => ({ name: p.name, type: p.type, el: null }));
+  controls.forEach((c) => { c.el = makeControl(c); });
+  const tracked = vmi.properties.filter((p) => TRACKED.has(p.name)).length;
+  const skipped = vmi.properties.filter((p) => !TRACKED.has(p.name) && !TYPE_ORDER.includes(p.type)).length;
+  status.textContent = `${file.name}: ${vmi.properties.length} properties, ${controls.length} controls, ${tracked} tracked, ${skipped} unsupported.`;
+  render();
+}
+
+document.getElementById("drop").ondragover = (e) => e.preventDefault();
+document.getElementById("drop").ondrop = (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  status.textContent = `Loading ${file.name}...`;
+  loadRig(file).catch((err) => {
+    console.error(err);
+    status.textContent = `Could not read ${file.name}: ${err.message}`;
+  });
+};
+
+render();
+</script>
+</body>
+</html>

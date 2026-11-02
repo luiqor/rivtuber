@@ -9,7 +9,7 @@ const engineFiles = ['src/lib/engine/**/*.{ts,js}'];
 
 export default ts.config(
 	{
-		ignores: ['.svelte-kit/', 'build/', 'node_modules/'],
+		ignores: ['.svelte-kit/', 'build/', 'node_modules/', '.scratch/'],
 	},
 	js.configs.recommended,
 	ts.configs.strictTypeChecked,

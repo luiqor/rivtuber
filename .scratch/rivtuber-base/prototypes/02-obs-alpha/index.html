@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+PROTOTYPE, THROWAWAY. Ticket 02: does alpha survive OBS Window Capture on macOS?
+Modes, set with ?bg=:
+  transparent (default): page background is transparent. Alpha test.
+  green: page background is #00FF00. Chroma key baseline for ticket 03.
+  checker: opaque checkerboard. Shows whether the window is captured at all.
+Drop catperson.riv on the page to render the real rig on the same background.
+Run this in an app window:
+  open -na "Google Chrome" --args --app="http://localhost:8080/?bg=transparent"
+(serve this folder with: python3 -m http.server 8080)
+Assumption, not verified: Chrome --app windows are opaque on macOS, so transparent
+pixels may come out black or white in the window. This page is how we find out.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE: OBS alpha</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  html { background: transparent; }
+  body { background: transparent; }
+  body.green { background: #00FF00; }
+  body.checker {
+    background: repeating-conic-gradient(#888 0% 25%, #ddd 0% 50%) 0 0 / 40px 40px;
+  }
+  .stage { position: fixed; inset: 0; }
+  /* Shapes with antialiased black outlines, the case ticket 03 cares about. */
+  .sq { position: absolute; left: 40px; top: 40px; width: 160px; height: 160px;
+        background: #e8833a; border: 6px solid #000; border-radius: 6px; }
+  .ring { position: absolute; left: 260px; top: 40px; width: 160px; height: 160px;
+          border-radius: 50%; border: 10px solid rgba(255, 255, 255, 0.5); box-sizing: border-box; }
+  .grad { position: absolute; left: 40px; top: 260px; width: 380px; height: 120px;
+          background: linear-gradient(90deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 1)); }
+  .label { position: absolute; left: 40px; top: 420px; font: 600 28px/1 system-ui; color: #fff;
+           text-shadow: 0 0 2px #000; }
+  .diag { position: absolute; left: 460px; top: 40px; width: 180px; height: 180px;
+          background: #3a7bd5; clip-path: polygon(0 0, 100% 0, 0 100%); }
+  #rive { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #status { position: fixed; left: 8px; bottom: 8px; font: 12px/1.3 system-ui; color: #fff;
+            background: #0008; padding: 4px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="sq"></div>
+  <div class="ring"></div>
+  <div class="diag"></div>
+  <div class="grad"></div>
+  <div class="label">alpha test</div>
+  <canvas id="rive"></canvas>
+</div>
+<div id="status">Drop catperson.riv here to draw the rig.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2@2.45.0/rive.js"></script>
+<script>
+const mode = new URLSearchParams(location.search).get("bg") ?? "transparent";
+if (mode === "green") document.body.classList.add("green");
+if (mode === "checker") document.body.classList.add("checker");
+document.getElementById("status").textContent =
+  `bg=${mode}. Drop catperson.riv here to draw the rig on this background.`;
+
+// Dropping the rig: rive draws into the transparent canvas over the shapes.
+document.body.ondragover = (e) => e.preventDefault();
+document.body.ondrop = async (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const riveFile = new rive.RiveFile({ buffer: await file.arrayBuffer() });
+  await riveFile.init();
+  const canvas = document.getElementById("rive");
+  canvas.width = innerWidth * devicePixelRatio;
+  canvas.height = innerHeight * devicePixelRatio;
+  new rive.Rive({ riveFile, canvas, autoplay: true });
+  document.getElementById("status").textContent = `bg=${mode}. Drew ${file.name}.`;
+};
+</script>
+</body>
+</html>
