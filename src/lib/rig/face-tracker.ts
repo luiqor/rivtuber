@@ -2,7 +2,7 @@ import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
 import { Smoother } from '#lib/engine/smoother.js';
 import { isBlinking, PupilHold } from '#lib/engine/pupil-hold.js';
-import { assistWink, linkEyes } from '#lib/engine/eye-link.js';
+import { linkEyes } from '#lib/engine/eye-link.js';
 import {
 	classifyEyelid,
 	squintFloor,
@@ -163,12 +163,6 @@ export const startFaceTracking = async (
 					calibrated[`${signal}Left`] = linked.Left;
 					calibrated[`${signal}Right`] = linked.Right;
 				}
-				const blink = assistWink({
-					Left: calibrated.eyeBlinkLeft,
-					Right: calibrated.eyeBlinkRight,
-				});
-				calibrated.eyeBlinkLeft = blink.Left;
-				calibrated.eyeBlinkRight = blink.Right;
 				const isHeld = isBlinking(calibrated.eyeBlinkLeft, calibrated.eyeBlinkRight);
 				for (const [name, hold] of Object.entries(pupilHolds)) {
 					calibrated[name] = hold.apply(calibrated[name] ?? 0, isHeld);
