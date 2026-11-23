@@ -2,6 +2,7 @@ import { headPose } from '#lib/engine/head-pose.js';
 import { trackedNumbers } from '#lib/engine/blendshapes.js';
 import { Smoother } from '#lib/engine/smoother.js';
 import { isBlinking, PupilHold } from '#lib/engine/pupil-hold.js';
+import { assistWink, linkEyes } from '#lib/engine/eye-link.js';
 import {
 	classifyEyelid,
 	squintFloor,
@@ -39,6 +40,7 @@ export const startFaceTracking = async (
 		frame: number;
 		isStopped: boolean;
 		lastVideoTime: number;
+		lastFrameMs: number | null;
 		mouthCandidate: MouthState;
 		mouthState: MouthState;
 		eyelids: Partial<Record<string, EyelidState>>;
@@ -49,22 +51,21 @@ export const startFaceTracking = async (
 		mic: null,
 		frame: 0,
 		lastVideoTime: -1,
+		lastFrameMs: null,
 		mouthCandidate: 'rest',
 		mouthState: 'rest',
 		eyelids: {},
 		isStopped: false,
 	};
 
-	const eyeSmoothers = Object.fromEntries(
-		['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'].flatMap((signal) =>
-			['Left', 'Right'].map((side) => [`${signal}${side}`, new Smoother()] as const),
-		),
-	);
+	const eyeSignals = ['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'];
 
-	const eyeHolds = Object.fromEntries(
-		['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'].flatMap((signal) =>
-			['Left', 'Right'].map((side) => [`${signal}${side}`, new PupilHold()] as const),
-		),
+	const eyeSmoothers = Object.fromEntries(
+		[
+			...eyeSignals.flatMap((signal) => ['Left', 'Right'].map((side) => `${signal}${side}`)),
+			'pupilX',
+			'pupilY',
+		].map((name) => [name, new Smoother()] as const),
 	);
 
 	const turnGate = new TurnGate();
@@ -136,6 +137,8 @@ export const startFaceTracking = async (
 		if (video.currentTime !== session.lastVideoTime) {
 			session.lastVideoTime = video.currentTime;
 			const now = performance.now();
+			const dtMs = session.lastFrameMs === null ? 0 : now - session.lastFrameMs;
+			session.lastFrameMs = now;
 			const frame = detector.detect(video, now);
 			setFaceTracking(Boolean(frame));
 			if (frame) {
@@ -147,15 +150,28 @@ export const startFaceTracking = async (
 				const calibrated = calibrateAll(raw, getProfile());
 				calibrated.jawOpen = combineJaw(calibrated.jawOpen, readMic());
 				for (const [name, smoother] of Object.entries(eyeSmoothers)) {
-					calibrated[name] = smoother.apply(calibrated[name] ?? 0);
+					calibrated[name] = smoother.apply(calibrated[name] ?? 0, dtMs);
 				}
+				const turnX = calibrated.headTurnX;
+				const isTurned = turnGate.apply(turnX);
+				for (const signal of eyeSignals) {
+					const linked = linkEyes(
+						{ Left: calibrated[`${signal}Left`] ?? 0, Right: calibrated[`${signal}Right`] ?? 0 },
+						isTurned,
+						turnX,
+					);
+					calibrated[`${signal}Left`] = linked.Left;
+					calibrated[`${signal}Right`] = linked.Right;
+				}
+				const blink = assistWink({
+					Left: calibrated.eyeBlinkLeft,
+					Right: calibrated.eyeBlinkRight,
+				});
+				calibrated.eyeBlinkLeft = blink.Left;
+				calibrated.eyeBlinkRight = blink.Right;
 				const isHeld = isBlinking(calibrated.eyeBlinkLeft, calibrated.eyeBlinkRight);
 				for (const [name, hold] of Object.entries(pupilHolds)) {
 					calibrated[name] = hold.apply(calibrated[name] ?? 0, isHeld);
-				}
-				const isTurned = turnGate.apply(calibrated.headTurnX);
-				for (const [name, hold] of Object.entries(eyeHolds)) {
-					calibrated[name] = hold.apply(calibrated[name] ?? 0, isTurned);
 				}
 				for (const [name, value] of Object.entries(calibrated)) {
 					const property = rig.instance.number(name);
@@ -165,15 +181,33 @@ export const startFaceTracking = async (
 				session.mouthState = mouthSettle.apply(session.mouthCandidate, now);
 				const mouth = rig.instance.enum('mouthState');
 				if (mouth && mouth.value !== session.mouthState) mouth.value = session.mouthState;
-				for (const side of ['Left', 'Right']) {
-					const candidate = classifyEyelid(
-						calibrated[`eyeBlink${side}`] ?? 0,
-						calibrated[`eyeSquint${side}`] ?? 0,
-						calibrated[`eyeWide${side}`] ?? 0,
-						calibrated[`browDown${side}`] ?? 0,
-						session.eyelids[side] ?? openEyelid,
-					);
-					const eyelid = eyelidSettles[side].apply(candidate, now);
+				const sides = ['Left', 'Right'] as const;
+				const candidates = Object.fromEntries(
+					sides.map((side) => [
+						side,
+						classifyEyelid(
+							calibrated[`eyeBlink${side}`] ?? 0,
+							calibrated[`eyeSquint${side}`] ?? 0,
+							calibrated[`eyeWide${side}`] ?? 0,
+							calibrated[`browDown${side}`] ?? 0,
+							session.eyelids[side] ?? openEyelid,
+						),
+					]),
+				) as Record<(typeof sides)[number], EyelidState>;
+				const settled = Object.fromEntries(
+					sides.map((side) => [side, eyelidSettles[side].apply(candidates[side], now)]),
+				) as Record<(typeof sides)[number], EyelidState>;
+				const isBothClosing =
+					candidates.Left.upper === 'closed' && candidates.Right.upper === 'closed';
+				const closedSide = sides.find((side) => settled[side].upper === 'closed');
+				if (isBothClosing && closedSide) {
+					for (const side of sides) {
+						eyelidSettles[side].force(settled[closedSide]);
+						settled[side] = settled[closedSide];
+					}
+				}
+				for (const side of sides) {
+					const eyelid = settled[side];
 					session.eyelids[side] = eyelid;
 					// Compared with the rig's own value, since the rig can reset it. Rive may also restart a transition on every write.
 					const upper = rig.instance.enum(`eyelidUp${side}`);

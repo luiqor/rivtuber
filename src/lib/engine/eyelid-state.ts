@@ -11,9 +11,10 @@ export const openEyelid: EyelidState = { upper: 'open', lower: 'open' };
 
 // Enter values are starting values from the rig's script, not yet tuned on a real face.
 // Each state is left at a lower exit value, so a signal hovering at the edge doesn't flicker.
-export const closedAt = 0.55;
+// Measured on a real face: open eyes stay under 0.31, blinks peak at 0.54-0.73, so 0.55 missed the weaker blinks.
+export const closedAt = 0.45;
 // An eye that is already closed stays closed until it drops below this, so a half-closed eye doesn't flicker.
-export const reopenAt = 0.45;
+export const reopenAt = 0.35;
 export const squintAt = 0.5;
 export const squintExitAt = 0.4;
 // The rig seems to scale the squint pose by the eyeSquint number, so an eye in the squint state never drops below this.
@@ -65,6 +66,14 @@ export const classifyEyelid = (
 
 // A new eyelid state is only applied once it has been the classifier's answer for this long.
 export const settleMs = 300;
+// Blinks last about 100-150 ms, so going into or out of closed only waits out single noisy frames.
+export const blinkSettleMs = 40;
+
+const isSame = (a: EyelidState, b: EyelidState): boolean =>
+	a.upper === b.upper && a.lower === b.lower;
+
+const settleFor = (from: EyelidState, to: EyelidState): number =>
+	from.upper === 'closed' || to.upper === 'closed' ? blinkSettleMs : settleMs;
 
 export class EyelidSettle {
 	private current: EyelidState | null = null;
@@ -76,18 +85,24 @@ export class EyelidSettle {
 			this.current = candidate;
 			return candidate;
 		}
-		if (candidate.upper === this.current.upper && candidate.lower === this.current.lower) {
+		if (isSame(candidate, this.current)) {
 			this.pending = null;
 			return this.current;
 		}
-		if (this.pending?.upper !== candidate.upper || this.pending.lower !== candidate.lower) {
+		if (this.pending === null || !isSame(this.pending, candidate)) {
 			this.pending = candidate;
 			this.pendingSince = nowMs;
 		}
-		if (nowMs - this.pendingSince >= settleMs) {
+		if (nowMs - this.pendingSince >= settleFor(this.current, candidate)) {
 			this.current = candidate;
 			this.pending = null;
 		}
 		return this.current;
+	}
+
+	// Lets the other eye pull this one into the same state on the same frame, so a blink closes both eyes together.
+	force(state: EyelidState): void {
+		this.current = state;
+		this.pending = null;
 	}
 }
