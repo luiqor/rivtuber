@@ -15,6 +15,7 @@ import { classifyMouth, MouthSettle, type MouthState } from '#lib/engine/mouth-s
 import { combineJaw } from '#lib/engine/mic-jaw.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
+import { createFacePreview } from '#lib/mediapipe/face-preview.js';
 import { startMicLevel, type MicLevel } from './mic-level.js';
 import type { Rig } from './load-rig.js';
 
@@ -29,6 +30,7 @@ export const startFaceTracking = async (
 	rig: Rig,
 	video: HTMLVideoElement,
 	getProfile: () => Profile,
+	previewCanvas: HTMLCanvasElement,
 ): Promise<FaceTracker> => {
 	const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
 	video.srcObject = stream;
@@ -68,6 +70,7 @@ export const startFaceTracking = async (
 		].map((name) => [name, new Smoother()] as const),
 	);
 
+	const preview = createFacePreview(previewCanvas);
 	const turnGate = new TurnGate();
 	const mouthSettle = new MouthSettle();
 
@@ -141,6 +144,7 @@ export const startFaceTracking = async (
 			session.lastFrameMs = now;
 			const frame = detector.detect(video, now);
 			setFaceTracking(Boolean(frame));
+			preview?.draw(frame?.landmarks ?? null);
 			if (frame) {
 				const raw = {
 					...trackedNumbers(frame.blendshapes),

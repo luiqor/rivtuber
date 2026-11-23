@@ -1,4 +1,4 @@
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@mediapipe/tasks-vision';
 
 const wasmUrl = '/mediapipe/wasm';
 const modelUrl = '/mediapipe/face_landmarker.task';
@@ -6,6 +6,7 @@ const modelUrl = '/mediapipe/face_landmarker.task';
 export interface FaceFrame {
 	blendshapes: ReadonlyMap<string, number>;
 	headMatrix: ArrayLike<number> | null;
+	landmarks: NormalizedLandmark[];
 }
 
 export interface FaceDetector {
@@ -32,6 +33,7 @@ export const createFaceDetector = async (): Promise<FaceDetector> => {
 			return {
 				blendshapes: new Map(face.categories.map((c) => [c.categoryName, c.score])),
 				headMatrix: result.facialTransformationMatrixes.at(0)?.data ?? null,
+				landmarks: result.faceLandmarks.at(0) ?? [],
 			};
 		},
 		close: () => {
