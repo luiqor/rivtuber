@@ -16,5 +16,5 @@ export const micJawOpen = (decibels: number): number => {
 	return Math.max(0, Math.min(1, level * jawGain));
 };
 
-// The camera and the mic each see the jaw, so the more open one wins.
+// The camera and the mic each see the mouth, so the more open one wins.
 export const combineJaw = (camera: number, mic: number): number => Math.max(camera, mic);

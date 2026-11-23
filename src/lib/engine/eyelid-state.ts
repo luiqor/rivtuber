@@ -21,8 +21,6 @@ export const squintExitAt = 0.4;
 export const squintFloor = 0.8;
 export const wideAt = 0.55;
 export const wideExitAt = 0.45;
-export const browDownAt = 0.5;
-export const browDownExitAt = 0.4;
 
 // MediaPipe's eye scores collapse when the head is turned away, so the eyelids keep their last state past this turn.
 export const holdTurnAt = 0.4;
@@ -46,7 +44,6 @@ export const classifyEyelid = (
 	blink: number,
 	squint: number,
 	wide: number,
-	browDown: number,
 	previous: EyelidState,
 ): EyelidState => {
 	if (isOn(blink, previous.upper === 'closed', closedAt, reopenAt)) {
@@ -57,9 +54,6 @@ export const classifyEyelid = (
 	}
 	if (isOn(wide, previous.upper === 'wide', wideAt, wideExitAt)) {
 		return { upper: 'wide', lower: 'open' };
-	}
-	if (isOn(browDown, previous.upper === 'inner-down', browDownAt, browDownExitAt)) {
-		return { upper: 'inner-down', lower: 'open' };
 	}
 	return openEyelid;
 };

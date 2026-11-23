@@ -2,6 +2,7 @@
 export const trackedProperties: ReadonlySet<string> = new Set([
 	'faceTracking',
 	'jawOpen',
+	'mouthOpen',
 	'mouthSmile',
 	'mouthFrown',
 	'mouthPucker',
@@ -14,8 +15,6 @@ export const trackedProperties: ReadonlySet<string> = new Set([
 	'eyeSquintRight',
 	'eyeWideLeft',
 	'eyeWideRight',
-	'browDownLeft',
-	'browDownRight',
 	'headRot',
 	'headTurnX',
 	'headTurnY',

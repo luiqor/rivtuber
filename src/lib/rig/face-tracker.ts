@@ -11,7 +11,7 @@ import {
 	openEyelid,
 	type EyelidState,
 } from '#lib/engine/eyelid-state.js';
-import { classifyMouth, MouthSettle, type MouthState } from '#lib/engine/mouth-state.js';
+import { mouthOpenness } from '#lib/engine/mouth-open.js';
 import { combineJaw } from '#lib/engine/mic-jaw.js';
 import { calibrateAll, NeutralCapture, type Profile } from '#lib/engine/calibration.js';
 import { createFaceDetector, type FaceDetector } from '#lib/mediapipe/face-detector.js';
@@ -43,8 +43,6 @@ export const startFaceTracking = async (
 		isStopped: boolean;
 		lastVideoTime: number;
 		lastFrameMs: number | null;
-		mouthCandidate: MouthState;
-		mouthState: MouthState;
 		eyelids: Partial<Record<string, EyelidState>>;
 		capture: NeutralCapture | null;
 	} = {
@@ -54,25 +52,23 @@ export const startFaceTracking = async (
 		frame: 0,
 		lastVideoTime: -1,
 		lastFrameMs: null,
-		mouthCandidate: 'rest',
-		mouthState: 'rest',
 		eyelids: {},
 		isStopped: false,
 	};
 
-	const eyeSignals = ['eyeBlink', 'eyeSquint', 'eyeWide', 'browDown'];
+	const eyeSignals = ['eyeBlink', 'eyeSquint', 'eyeWide'];
 
 	const eyeSmoothers = Object.fromEntries(
 		[
 			...eyeSignals.flatMap((signal) => ['Left', 'Right'].map((side) => `${signal}${side}`)),
 			'pupilX',
 			'pupilY',
+			'mouthOpen',
 		].map((name) => [name, new Smoother()] as const),
 	);
 
 	const preview = createFacePreview(previewCanvas);
 	const turnGate = new TurnGate();
-	const mouthSettle = new MouthSettle();
 
 	const eyelidSettles: Record<string, EyelidSettle> = {
 		Left: new EyelidSettle(),
@@ -146,13 +142,15 @@ export const startFaceTracking = async (
 			setFaceTracking(Boolean(frame));
 			preview?.draw(frame?.landmarks ?? null);
 			if (frame) {
+				const openness = mouthOpenness(frame.landmarks, video.videoWidth / video.videoHeight);
 				const raw = {
 					...trackedNumbers(frame.blendshapes),
 					...(frame.headMatrix && headPose(frame.headMatrix)),
+					...(openness !== null && { mouthOpen: openness }),
 				};
 				session.capture?.add(raw);
 				const calibrated = calibrateAll(raw, getProfile());
-				calibrated.jawOpen = combineJaw(calibrated.jawOpen, readMic());
+				calibrated.mouthOpen = combineJaw(calibrated.mouthOpen, readMic());
 				for (const [name, smoother] of Object.entries(eyeSmoothers)) {
 					calibrated[name] = smoother.apply(calibrated[name] ?? 0, dtMs);
 				}
@@ -175,10 +173,6 @@ export const startFaceTracking = async (
 					const property = rig.instance.number(name);
 					if (property) property.value = value;
 				}
-				session.mouthCandidate = classifyMouth(calibrated, session.mouthCandidate);
-				session.mouthState = mouthSettle.apply(session.mouthCandidate, now);
-				const mouth = rig.instance.enum('mouthState');
-				if (mouth && mouth.value !== session.mouthState) mouth.value = session.mouthState;
 				const sides = ['Left', 'Right'] as const;
 				const candidates = Object.fromEntries(
 					sides.map((side) => [
@@ -187,7 +181,6 @@ export const startFaceTracking = async (
 							calibrated[`eyeBlink${side}`] ?? 0,
 							calibrated[`eyeSquint${side}`] ?? 0,
 							calibrated[`eyeWide${side}`] ?? 0,
-							calibrated[`browDown${side}`] ?? 0,
 							session.eyelids[side] ?? openEyelid,
 						),
 					]),
