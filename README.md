@@ -2,7 +2,8 @@
 
 Your face drives a [Rive](https://rive.app) character, live from your webcam.
 
-VIDEO_URL
+https://github.com/user-attachments/assets/321766de-9a3f-4b6f-9918-47c8b830b632
+
 
 ## Features
 
