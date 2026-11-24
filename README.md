@@ -1,56 +1,29 @@
-# sv
+# rivtuber
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Your face drives a [Rive](https://rive.app) character, live from your webcam.
 
-## Creating a project
+VIDEO_URL
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Features
 
-```sh
-# create a new project
-npx sv create my-app
-```
+- Face tracking with MediaPipe: blinks, gaze, head turns
+- Mouth openness from the camera and the mic
+- Neutral-face calibration
+- Any Rive rig: its outfits and colors show up as controls
 
-To recreate this project with the same configuration:
+## Run
 
-```sh
-# recreate this project
-npx sv@1.1.1 create --template minimal --types ts --no-install app
-```
-
-## Adding features
-
-Add features to your project with `sv add`:
+In the browser:
 
 ```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Open the page and drop a `.riv` file on it.
 
-To create a production version of your app:
+As a desktop app, in a transparent Electron window that OBS can capture:
 
 ```sh
-npm run build
+npm run electron
 ```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
