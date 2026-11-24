@@ -18,7 +18,8 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"lint": "eslint --max-warnings 0 . && prettier --check . && stylelint \"src/**/*.{css,svelte}\" --max-warnings 0",
-		"lint-staged": "lint-staged"
+		"lint-staged": "lint-staged",
+		"dist": "vite build && electron-builder --publish never"
 	},
 	"devDependencies": {
 		"@commitlint/cli": "^21.2.4",
@@ -29,6 +30,7 @@
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
 		"@tailwindcss/vite": "^4.3.3",
 		"electron": "^45.0.0",
+		"electron-builder": "^26.18.0",
 		"eslint": "^10.13.0",
 		"eslint-plugin-better-tailwindcss": "^4.10.0",
 		"eslint-plugin-svelte": "^3.23.1",
@@ -53,5 +55,36 @@
 	"dependencies": {
 		"@mediapipe/tasks-vision": "1.1.1",
 		"@rive-app/webgl2": "2.45.0"
+	},
+	"main": "electron/main.js",
+	"build": {
+		"appId": "com.luiqor.rivtuber",
+		"productName": "rivtuber",
+		"directories": {
+			"output": "dist",
+			"buildResources": "electron/resources"
+		},
+		"files": [
+			"build/**/*",
+			"electron/**/*",
+			"package.json",
+			"!node_modules/**/*"
+		],
+		"mac": {
+			"target": [
+				"dmg",
+				"zip"
+			],
+			"category": "public.app-category.video",
+			"extendInfo": {
+				"NSCameraUsageDescription": "rivtuber uses the camera to track your face.",
+				"NSMicrophoneUsageDescription": "rivtuber uses the microphone to open the mouth when you talk."
+			}
+		},
+		"win": {
+			"target": [
+				"nsis"
+			]
+		}
 	}
 }
